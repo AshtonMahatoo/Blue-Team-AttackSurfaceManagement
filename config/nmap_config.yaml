@@ -1,0 +1,170 @@
+# SP101 ASM - Nmap Scanner Configuration
+# Version: 1.0.0
+
+# General scanner settings
+scanner:
+  name: "nmap"
+  version: "7.94"
+  enabled: true
+  description: "Network discovery and security auditing scanner"
+
+# Binary/Path configuration
+binary:
+  path: "/usr/bin/nmap"           # Linux/macOS
+  windows_path: "C:\Program Files (x86)\Nmap\nmap.exe"
+  auto_discover: true             # Try to find nmap automatically
+
+# Scan profiles - Predefined scan types
+profiles:
+  # Quick discovery scan
+  quick_discovery:
+    name: "Quick Asset Discovery"
+    enabled: true
+    arguments:
+      - "-sn"                     # Ping scan
+      - "-n"                      # No DNS resolution
+      - "--max-retries 1"
+      - "--host-timeout 30s"
+      - "-T4"                     # Aggressive timing
+    ports: []                     # No port scanning
+    description: "Fast network discovery without port scanning"
+
+  # Light vulnerability scan
+  light_scan:
+    name: "Light Vulnerability Scan"
+    enabled: true
+    arguments:
+      - "-sV"                     # Version detection
+      - "-sC"                     # Default scripts
+      - "-O"                      # OS detection
+      - "--script vuln"           # Vulnerability scripts
+      - "-T3"                     # Normal timing
+      - "--max-rate 100"
+    ports: "1-1024"               # Common ports
+    description: "Quick security assessment of common services"
+
+  # Comprehensive scan
+  comprehensive:
+    name: "Comprehensive Security Audit"
+    enabled: false                # Disabled by default (intrusive)
+    arguments:
+      - "-sV"                     # Version detection
+      - "-sC"                     # Script scan
+      - "-O"                      # OS detection
+      - "-A"                      # Aggressive scan
+      - "--script vuln,auth,default"
+      - "-p-"                     # All ports
+      - "-T4"                     # Aggressive timing
+    ports: "1-65535"              # All ports
+    description: "Full security audit (intrusive, use with caution)"
+
+  # Web application focus
+  web_application:
+    name: "Web Application Scan"
+    enabled: true
+    arguments:
+      - "-sV"
+      - "-sC"
+      - "--script http-enum,http-title,http-headers"
+      - "--script-args http.useragent='SP101-ASM-Scanner'"
+    ports: "80,443,8080,8443,3000,8000,8008,8888"
+    description: "Specialized scan for web applications"
+
+# Timing and performance
+timing:
+  template: "T3"                  # T0 (paranoid) to T5 (insane)
+  max_scan_duration: "1h"         # Maximum scan time
+  max_hosts: 50                   # Max hosts per scan batch
+  min_rate: 50                    # Min packets per second
+  max_rate: 500                   # Max packets per second
+
+# Script configuration
+scripts:
+  enable_default: true
+  enable_vulnerability: true
+  enable_safe: true
+  enable_intrusive: false         # Disable intrusive scripts by default
+  custom_script_path: "/opt/asm/scripts/nmap"
+  
+  # Specific script configurations
+  script_args:
+    http-useragent: "SP101-ASM-Scanner/1.0"
+    ssh-hostkey: "/opt/asm/known_hosts"
+    smbdomain: "WORKGROUP"
+
+# Output configuration
+output:
+  format: "xml"                   # xml, grepable, normal, json
+  directory: "/opt/asm/data/scans/nmap"
+  filename_template: "scan_{target}_{timestamp}_{profile}.xml"
+  keep_raw_output: true
+  max_files: 100                  # Max files to keep
+  compression: "gzip"             # gzip, none
+
+# Target handling
+targets:
+  exclude:
+    - "192.168.1.100"             # Exclude specific IPs
+    - "10.0.0.1"
+  exclude_file: "/opt/asm/config/exclusions.txt"
+  max_targets_per_scan: 100
+
+# Risk management
+risk_management:
+  avoid_ids: true                 # Avoid IDS/IPS detection
+  randomize_hosts: true           # Scan hosts in random order
+  spoof_mac: false               # MAC address spoofing
+  data_length: 0                 # Append random data to packets
+  send_eth: false                # Send raw ethernet frames
+
+# Integration settings
+integration:
+  graylog:
+    enabled: true
+    send_raw_results: false
+    send_parsed_results: true
+    alert_on:
+      - "open_ports"
+      - "vulnerabilities"
+      - "service_changes"
+  
+  database:
+    enabled: true
+    store_findings: true
+    store_raw_output: false
+
+# Alert thresholds
+alerts:
+  new_open_ports: true
+  new_services: true
+  high_severity_vulns: true
+  critical_ports:                  # Ports that trigger immediate alerts
+    - "22"   # SSH
+    - "23"   # Telnet
+    - "3389" # RDP
+    - "5900" # VNC
+    - "5432" # PostgreSQL
+    - "27017" # MongoDB
+
+# Schedule configuration
+schedule:
+  discovery_scan: "0 2 * * *"     # Daily at 2 AM
+  light_scan: "0 4 * * *"         # Daily at 4 AM
+  web_scan: "0 6 * * 0"           # Weekly on Sunday at 6 AM
+
+# Performance tuning
+performance:
+  max_threads: 10
+  timeout_multiplier: 1.5
+  retry_count: 2
+  fragment_packets: false
+
+# Compliance scanning
+compliance:
+  cis_benchmarks: true
+  stig_checks: false
+  pci_dss_ports:                  # PCI DSS required scans
+    - "80"
+    - "443"
+    - "22"
+    - "3389"

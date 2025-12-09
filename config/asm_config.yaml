@@ -1,107 +1,267 @@
-# Attack Surface Management Configuration
+# SP101 Attack Surface Management Configuration
+# Version: 1.0.0
 
 platform:
-  name: "Enterprise ASM Platform"
+  name: "SP101 ASM Platform"
   version: "1.0.0"
   environment: "production"
+  debug: false
 
+# Database configuration
 database:
-  type: "postgresql"
-  host: "localhost"
-  port: 5432
-  name: "asm_db"
-  user: "asm_user"
-  password: "${DB_PASSWORD}"
+  postgresql:
+    host: "localhost"
+    port: 5432
+    database: "asm_db"
+    username: "asm_user"
+    password: "asm_password"
+    pool_size: 20
+    max_overflow: 40
+    
+  redis:
+    host: "localhost"
+    port: 6379
+    password: ""
+    db: 0
 
+# Graylog integration
 graylog:
   enabled: true
   host: "localhost"
   port: 9000
   username: "admin"
-  password: "${GRAYLOG_PASSWORD}"
+  password: "ChangeThisPassword"
   use_ssl: false
+  
   inputs:
     syslog:
-      port: 1514
       enabled: true
+      port: 1514
+      
     gelf:
+      enabled: true
       port: 5555
+      
+  streams:
+    asm_assets:
+      name: "ASM Asset Discovery"
+      enabled: true
+      
+    asm_vulnerabilities:
+      name: "ASM Vulnerability Alerts"
+      enabled: true
+      
+    asm_alerts:
+      name: "ASM Security Alerts"
       enabled: true
 
+# Asset discovery configuration
 discovery:
   enabled: true
-  interval: 3600  # seconds
+  interval: 3600  # seconds (1 hour)
+  
   methods:
-    - shodan
-    - nmap
-    - aws
-    - subdomain
-  targets:
+    dns:
+      enabled: true
+      domains:
+        - "example.com"
+        - "example.org"
+        
+    shodan:
+      enabled: true
+      api_key: "${SHODAN_API_KEY}"
+      queries:
+        - 'org:"Your Organization"'
+        - 'hostname:"*.example.com"'
+        
+    nmap:
+      enabled: true
+      ip_ranges:
+        - "192.168.1.0/24"
+        - "10.0.0.0/8"
+        
+    certificates:
+      enabled: true
+      
+  exclusions:
+    ips:
+      - "192.168.1.100"
+      - "10.0.0.1"
+      
     domains:
-      - "example.com"
-      - "example.org"
-    ip_ranges:
-      - "192.168.1.0/24"
-      - "10.0.0.0/8"
+      - "dev.internal.example.com"
 
+# Vulnerability scanning
 scanning:
   enabled: true
-  interval: 7200  # seconds
-  intensity: "normal"  # light, normal, aggressive
-  ports: "1-1000"
-  scripts:
-    - "vuln"
-    - "safe"
-  exclusions:
-    - "192.168.1.100"
-    - "10.0.0.1"
-
-shodan:
-  api_key: "${SHODAN_API_KEY}"
-  enabled: true
-  rate_limit: 1
-
-nmap:
-  path: "/usr/bin/nmap"
-  timing_template: "T4"
-  max_scan_time: "30m"
-
-aws:
-  enabled: false
-  access_key: "${AWS_ACCESS_KEY}"
-  secret_key: "${AWS_SECRET_KEY}"
-  regions:
-    - "us-east-1"
-    - "eu-west-1"
-
-alerts:
-  enabled: true
-  providers:
-    email:
+  interval: 7200  # seconds (2 hours)
+  
+  scanners:
+    nmap:
       enabled: true
-      smtp_server: "smtp.gmail.com"
-      smtp_port: 587
-      sender: "asm@example.com"
-      recipients:
-        - "security@example.com"
-    slack:
+      profiles:
+        - "quick"
+        - "vuln"
+        - "safe"
+        
+    nessus:
       enabled: false
-      webhook_url: "${SLACK_WEBHOOK}"
+      host: "localhost"
+      port: 8834
+      username: "${NESSUS_USER}"
+      password: "${NESSUS_PASS}"
+      
+    zap:
+      enabled: false
+      api_key: "${ZAP_API_KEY}"
+      
+  intensity: "normal"  # light, normal, aggressive
+  max_hosts_per_scan: 50
+  max_ports_per_host: 1000
 
-logging:
-  level: "INFO"
-  file: "/app/logs/asm.log"
-  max_size: "10MB"
-  backup_count: 5
-  graylog_enabled: true
-
+# Risk assessment
 risk_assessment:
+  enabled: true
+  
   scoring:
     cvss_weight: 0.6
     exposure_weight: 0.3
     asset_value_weight: 0.1
+    
   thresholds:
     critical: 9.0
     high: 7.0
     medium: 4.0
-    low: 0.0
+    low: 0.1
+    
+  asset_value:
+    web_server: 8
+    database: 10
+    mail_server: 6
+    network_device: 4
+    unknown: 3
+
+# Alerting configuration
+alerts:
+  enabled: true
+  
+  email:
+    enabled: true
+    smtp_host: "smtp.gmail.com"
+    smtp_port: 587
+    username: "${EMAIL_USER}"
+    password: "${EMAIL_PASS}"
+    from_address: "asm@example.com"
+    recipients:
+      - "security-team@example.com"
+      - "admin@example.com"
+      
+  slack:
+    enabled: false
+    webhook_url: "${SLACK_WEBHOOK}"
+    channel: "#security-alerts"
+    
+  thresholds:
+    new_critical_vuln: true
+    new_external_asset: true
+    risk_score_change: 2.0
+
+# Reporting
+reporting:
+  enabled: true
+  
+  schedules:
+    daily: "0 6 * * *"  # 6 AM daily
+    weekly: "0 7 * * 0"  # 7 AM Sunday
+    monthly: "0 8 1 * *" # 8 AM 1st of month
+    
+  formats:
+    - "pdf"
+    - "html"
+    - "json"
+    
+  recipients:
+    - "management@example.com"
+    - "security@example.com"
+
+# Logging configuration
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  file: "/var/log/asm/asm.log"
+  max_size: "10MB"
+  backup_count: 5
+  graylog_enabled: true
+  
+  # Component-specific logging
+  components:
+    discovery: "INFO"
+    scanning: "INFO"
+    database: "WARNING"
+    api: "INFO"
+
+# API configuration
+api:
+  enabled: true
+  host: "0.0.0.0"
+  port: 8000
+  debug: false
+  
+  authentication:
+    enabled: true
+    jwt_secret: "${JWT_SECRET}"
+    token_expiry: 3600
+    
+  cors:
+    enabled: true
+    origins:
+      - "http://localhost:3000"
+      - "https://asm.example.com"
+
+# Performance tuning
+performance:
+  max_workers: 10
+  max_queue_size: 1000
+  scan_timeout: 300  # seconds
+  discovery_timeout: 600
+  
+  database:
+    connection_timeout: 30
+    query_timeout: 10
+    
+  network:
+    max_retries: 3
+    retry_delay: 1
+
+# Security settings
+security:
+  ssl:
+    enabled: false
+    cert_file: "/etc/ssl/asm.crt"
+    key_file: "/etc/ssl/asm.key"
+    
+  headers:
+    x_frame_options: "DENY"
+    x_content_type_options: "nosniff"
+    x_xss_protection: "1; mode=block"
+    
+  rate_limiting:
+    enabled: true
+    requests_per_minute: 60
+
+# Backup configuration
+backup:
+  enabled: true
+  schedule: "0 2 * * *"  # 2 AM daily
+  
+  retention:
+    days: 30
+    weeks: 4
+    months: 12
+    
+  locations:
+    - "/var/backups/asm"
+    - "s3://asm-backups"  # If S3 configured
+    
+  encryption:
+    enabled: true
+    key_file: "/etc/asm/backup.key"

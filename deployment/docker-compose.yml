@@ -1,0 +1,185 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: asm-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: asm_db
+      POSTGRES_USER: asm_user
+      POSTGRES_PASSWORD: asm_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - asm-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U asm_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: asm-redis
+    restart: unless-stopped
+    command: redis-server --requirepass redis_password
+    volumes:
+      - redis_data:/data
+    networks:
+      - asm-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Graylog Stack
+  mongodb:
+    image: mongo:5.0
+    container_name: asm-mongodb
+    restart: unless-stopped
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - asm-network
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.10.0
+    container_name: asm-elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - xpack.security.enabled=false
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    networks:
+      - asm-network
+
+  graylog:
+    image: graylog/graylog:5.1
+    container_name: asm-graylog
+    restart: unless-stopped
+    depends_on:
+      - mongodb
+      - elasticsearch
+    environment:
+      - GRAYLOG_PASSWORD_SECRET=${GRAYLOG_PASSWORD_SECRET}
+      - GRAYLOG_ROOT_PASSWORD_SHA2=${GRAYLOG_ROOT_PASSWORD_SHA2}
+      - GRAYLOG_HTTP_EXTERNAL_URI=http://${SERVER_IP}:9000/
+      - GRAYLOG_ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - GRAYLOG_MONGODB_URI=mongodb://mongodb:27017/graylog
+    ports:
+      - "9000:9000"   # Web interface
+      - "1514:1514"   # Syslog TCP
+      - "1514:1514/udp" # Syslog UDP
+      - "5555:5555"   # GELF TCP
+      - "5555:5555/udp" # GELF UDP
+    volumes:
+      - graylog_data:/usr/share/graylog/data
+      - ./graylog/config:/usr/share/graylog/data/config
+    networks:
+      - asm-network
+
+  # SP101 ASM Application
+  asm-app:
+    build:
+      context: ../../
+      dockerfile: deployment/docker/Dockerfile
+    container_name: asm-application
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - redis
+      - graylog
+    environment:
+      - DATABASE_URL=postgresql://asm_user:asm_password@postgres:5432/asm_db
+      - REDIS_URL=redis://:redis_password@redis:6379/0
+      - GRAYLOG_HOST=graylog
+      - GRAYLOG_PORT=9000
+    volumes:
+      - ../../config:/app/config
+      - ../../data:/app/data
+      - ../../logs:/app/logs
+      - ./scripts:/app/scripts
+    ports:
+      - "8000:8000"  # API port
+    networks:
+      - asm-network
+    command: ["python", "src/main.py", "--daemon"]
+
+  # Nginx Reverse Proxy (optional)
+  nginx:
+    image: nginx:alpine
+    container_name: asm-nginx
+    restart: unless-stopped
+    depends_on:
+      - asm-app
+      - graylog
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+      - ./nginx/sites:/etc/nginx/conf.d
+    networks:
+      - asm-network
+
+  # Prometheus Monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: asm-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9090:9090"
+    networks:
+      - asm-network
+
+  # Grafana Dashboard
+  grafana:
+    image: grafana/grafana:latest
+    container_name: asm-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources
+    ports:
+      - "3000:3000"
+    networks:
+      - asm-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  mongodb_data:
+  elasticsearch_data:
+  graylog_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  asm-network:
+    driver: bridge

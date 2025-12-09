@@ -1,0 +1,65 @@
+# SP101 ASM - Scanner Manager Configuration
+# Coordinates multiple scanners
+
+scanners:
+  # Nmap configuration
+  nmap:
+    enabled: true
+    priority: 1                  # Primary scanner
+    config_file: "nmap_config.yaml"
+    max_concurrent_scans: 3
+    
+  # Nessus configuration
+  nessus:
+    enabled: false               # Requires license
+    priority: 2
+    config_file: "nessus_config.yaml"
+    max_concurrent_scans: 1
+    
+  # Additional scanners
+  masscan:
+    enabled: true
+    priority: 3
+    config_file: "masscan_config.yaml"
+    use_case: "port_discovery"
+    
+  nikto:
+    enabled: true
+    priority: 4
+    config_file: "nikto_config.yaml"
+    use_case: "web_vulnerability"
+
+# Scan orchestration
+orchestration:
+  parallel_scans: true
+  max_total_scans: 5
+  conflict_resolution: "priority"  # priority, round_robin, sequential
+  
+  # Target distribution
+  target_distribution:
+    strategy: "intelligent"      # intelligent, random, round_robin
+    batch_size: 10
+    cooldown_between_batches: 30  # Seconds
+
+# Results aggregation
+aggregation:
+  enabled: true
+  deduplicate: true
+  confidence_scoring: true
+  override_rules:
+    - "nessus_over_nmap"        # Nessus results override Nmap
+    - "credentialed_over_non"   # Credentialed scans override non-credentialed
+  
+  # Correlation rules
+  correlation:
+    by_ip: true
+    by_service: true
+    by_vulnerability: true
+    timeframe_hours: 24
+
+# Load balancing
+load_balancing:
+  enabled: true
+  algorithm: "least_connections"
+  health_check_interval: 60      # Seconds
+  failover: true
