@@ -1,0 +1,84 @@
+version: '3.8'
+services:
+  # MongoDB for Graylog
+  mongodb:
+    image: mongo:5.0
+    container_name: asm-mongodb
+    restart: unless-stopped
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - asm-network
+
+  # Elasticsearch for Graylog
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.10.0
+    container_name: asm-elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - xpack.security.enabled=false
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    networks:
+      - asm-network
+
+  # Graylog
+  graylog:
+    image: graylog/graylog:5.1
+    container_name: asm-graylog
+    restart: unless-stopped
+    environment:
+      - GRAYLOG_PASSWORD_SECRET=${GRAYLOG_PASSWORD_SECRET}
+      - GRAYLOG_ROOT_PASSWORD_SHA2=${GRAYLOG_ROOT_PASSWORD_SHA2}
+      - GRAYLOG_HTTP_EXTERNAL_URI=http://${SERVER_IP}:9000/
+      - GRAYLOG_ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - GRAYLOG_MONGODB_URI=mongodb://mongodb:27017/graylog
+    depends_on:
+      - mongodb
+      - elasticsearch
+    ports:
+      - "9000:9000"   # Web interface
+      - "1514:1514"   # Syslog TCP
+      - "1514:1514/udp" # Syslog UDP
+      - "5555:5555"   # GELF TCP
+      - "5555:5555/udp" # GELF UDP
+    volumes:
+      - graylog_data:/usr/share/graylog/data
+      - ./deployment/graylog:/usr/share/graylog/data/config
+    networks:
+      - asm-network
+
+  # ASM Application
+  asm-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: asm-application
+    restart: unless-stopped
+    depends_on:
+      - graylog
+    environment:
+      - GRAYLOG_HOST=graylog
+      - GRAYLOG_PORT=9000
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+      - ./logs:/app/logs
+    networks:
+      - asm-network
+    command: python src/main.py --daemon
+
+volumes:
+  mongodb_data:
+  elasticsearch_data:
+  graylog_data:
+
+networks:
+  asm-network:
+    driver: bridge
