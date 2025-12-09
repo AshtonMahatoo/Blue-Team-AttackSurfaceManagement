@@ -1,0 +1,107 @@
+# Attack Surface Management Configuration
+
+platform:
+  name: "Enterprise ASM Platform"
+  version: "1.0.0"
+  environment: "production"
+
+database:
+  type: "postgresql"
+  host: "localhost"
+  port: 5432
+  name: "asm_db"
+  user: "asm_user"
+  password: "${DB_PASSWORD}"
+
+graylog:
+  enabled: true
+  host: "localhost"
+  port: 9000
+  username: "admin"
+  password: "${GRAYLOG_PASSWORD}"
+  use_ssl: false
+  inputs:
+    syslog:
+      port: 1514
+      enabled: true
+    gelf:
+      port: 5555
+      enabled: true
+
+discovery:
+  enabled: true
+  interval: 3600  # seconds
+  methods:
+    - shodan
+    - nmap
+    - aws
+    - subdomain
+  targets:
+    domains:
+      - "example.com"
+      - "example.org"
+    ip_ranges:
+      - "192.168.1.0/24"
+      - "10.0.0.0/8"
+
+scanning:
+  enabled: true
+  interval: 7200  # seconds
+  intensity: "normal"  # light, normal, aggressive
+  ports: "1-1000"
+  scripts:
+    - "vuln"
+    - "safe"
+  exclusions:
+    - "192.168.1.100"
+    - "10.0.0.1"
+
+shodan:
+  api_key: "${SHODAN_API_KEY}"
+  enabled: true
+  rate_limit: 1
+
+nmap:
+  path: "/usr/bin/nmap"
+  timing_template: "T4"
+  max_scan_time: "30m"
+
+aws:
+  enabled: false
+  access_key: "${AWS_ACCESS_KEY}"
+  secret_key: "${AWS_SECRET_KEY}"
+  regions:
+    - "us-east-1"
+    - "eu-west-1"
+
+alerts:
+  enabled: true
+  providers:
+    email:
+      enabled: true
+      smtp_server: "smtp.gmail.com"
+      smtp_port: 587
+      sender: "asm@example.com"
+      recipients:
+        - "security@example.com"
+    slack:
+      enabled: false
+      webhook_url: "${SLACK_WEBHOOK}"
+
+logging:
+  level: "INFO"
+  file: "/app/logs/asm.log"
+  max_size: "10MB"
+  backup_count: 5
+  graylog_enabled: true
+
+risk_assessment:
+  scoring:
+    cvss_weight: 0.6
+    exposure_weight: 0.3
+    asset_value_weight: 0.1
+  thresholds:
+    critical: 9.0
+    high: 7.0
+    medium: 4.0
+    low: 0.0
