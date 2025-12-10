@@ -1,0 +1,274 @@
+# SP101 ASM - Tenable Nessus Scanner Configuration
+# Version: 1.0.0
+
+# Scanner connection settings
+scanner:
+  name: "nessus"
+  type: "tenable"
+  enabled: false                  # Disabled until configured
+  description: "Enterprise vulnerability assessment scanner"
+
+# Connection details
+connection:
+  host: "https://nessus.local:8834"
+  username: "${NESSUS_USERNAME}"
+  password: "${NESSUS_PASSWORD}"
+  verify_ssl: true
+  timeout: 300                    # Seconds
+  max_retries: 3
+  retry_delay: 10                 # Seconds between retries
+
+# API configuration
+api:
+  access_key: "${NESSUS_ACCESS_KEY}"
+  secret_key: "${NESSUS_SECRET_KEY}"
+  version: "v1"
+  rate_limit: 10                 # Requests per second
+
+# Scan policies
+policies:
+  # Basic network scan
+  basic_network:
+    id: 1001                     # Policy ID in Nessus
+    name: "SP101 - Basic Network Scan"
+    enabled: true
+    description: "Standard vulnerability assessment for network devices"
+    template: "basic network scan"
+    
+    # Policy settings
+    settings:
+      portscan_range: "default"
+      thorough_tests: "no"
+      safe_checks: "yes"
+      silent_dependencies: "yes"
+      
+    # Plugin families
+    plugin_families:
+      enabled:
+        - "General"
+        - "Service Detection"
+        - "Web Servers"
+        - "Databases"
+      disabled:
+        - "Denial of Service"
+        - "Intrusive"
+
+  # Web application scan
+  web_application:
+    id: 1002
+    name: "SP101 - Web Application Scan"
+    enabled: true
+    description: "Comprehensive web application vulnerability assessment"
+    template: "web application tests"
+    
+    settings:
+      webspider_enabled: "yes"
+      max_hosts: 5
+      max_checks: 10
+      report_verbosity: "Normal"
+      web_application_test: "yes"
+
+  # Credentialed patch audit
+  credentialed_audit:
+    id: 1003
+    name: "SP101 - Credentialed Patch Audit"
+    enabled: false               # Requires credentials
+    description: "Authenticated patch and configuration audit"
+    template: "patch audit"
+    
+    credentials:
+      windows:
+        username: "${WINDOWS_USER}"
+        password: "${WINDOWS_PASSWORD}"
+        domain: "${WINDOWS_DOMAIN}"
+      linux:
+        username: "${LINUX_USER}"
+        password: "${LINUX_PASSWORD}"
+        ssh_key: "/opt/asm/secrets/ssh_key"
+
+# Scan configurations
+scans:
+  # Scheduled discovery scan
+  daily_discovery:
+    name: "SP101 - Daily Asset Discovery"
+    enabled: true
+    policy: "basic_network"
+    frequency: "daily"
+    start_time: "02:00"
+    targets:
+      - "192.168.1.0/24"
+      - "10.0.0.0/24"
+    exclusions:
+      - "192.168.1.100"
+    email_notification: "security-team@example.com"
+    
+  # Weekly deep scan
+  weekly_deep_scan:
+    name: "SP101 - Weekly Deep Assessment"
+    enabled: true
+    policy: "web_application"
+    frequency: "weekly"
+    day_of_week: "sunday"
+    start_time: "22:00"
+    targets:
+      - "web-servers"
+      - "database-servers"
+    credentials: true
+
+# Vulnerability thresholds
+severity:
+  critical:
+    cvss_score: 9.0-10.0
+    color: "#FF0000"             # Red
+    notify:
+      - "immediate"
+      - "sms"
+      - "email"
+    
+  high:
+    cvss_score: 7.0-8.9
+    color: "#FF6600"             # Orange
+    notify:
+      - "hourly"
+      - "email"
+    
+  medium:
+    cvss_score: 4.0-6.9
+    color: "#FFCC00"             # Yellow
+    notify:
+      - "daily"
+    
+  low:
+    cvss_score: 0.1-3.9
+    color: "#00CC00"             # Green
+    notify:
+      - "weekly"
+
+# Compliance scanning
+compliance:
+  enabled: true
+  frameworks:
+    - name: "CIS Benchmarks"
+      enabled: true
+      version: "v8"
+    - name: "NIST 800-53"
+      enabled: false
+    - name: "PCI DSS"
+      enabled: true
+      version: "v4.0"
+    - name: "HIPAA"
+      enabled: false
+    - name: "GDPR"
+      enabled: true
+
+# Remediation tracking
+remediation:
+  enabled: true
+  jira_integration:
+    enabled: true
+    project_key: "ASM"
+    issue_type: "Vulnerability"
+    assignee: "security-team"
+    
+  slack_integration:
+    enabled: false
+    webhook_url: "${SLACK_WEBHOOK}"
+    channel: "#vulnerability-alerts"
+
+# Report configuration
+reports:
+  formats:
+    - "html"
+    - "pdf"
+    - "csv"
+    - "nessus"
+  
+  generation:
+    auto_generate: true
+    schedule: "after_scan"
+    retention_days: 90
+  
+  distribution:
+    email:
+      enabled: true
+      recipients:
+        - "security-team@example.com"
+        - "it-managers@example.com"
+      frequency: "weekly"
+    
+    sftp:
+      enabled: false
+      host: "reports.example.com"
+      path: "/incoming/nessus_reports/"
+
+# Performance settings
+performance:
+  max_scans: 5                   # Concurrent scans
+  max_hosts_per_scan: 50
+  scan_speed: "normal"           # slow, normal, fast, very fast
+  network_receive_timeout: 300   # Seconds
+
+# Plugin management
+plugins:
+  auto_update: true
+  update_schedule: "0 1 * * 0"   # Weekly on Sunday at 1 AM
+  enable_deprecated: false
+  custom_plugin_path: "/opt/asm/plugins/nessus"
+
+# Integration with other tools
+integration:
+  graylog:
+    enabled: true
+    send_vulnerabilities: true
+    send_compliance: true
+    stream: "nessus_vulnerabilities"
+    
+  splunk:
+    enabled: false
+    hec_token: "${SPLUNK_HEC_TOKEN}"
+    index: "vulnerability"
+    
+  elasticsearch:
+    enabled: true
+    hosts:
+      - "http://elasticsearch:9200"
+    index: "nessus-scans-{YYYY.MM.dd}"
+
+# Audit logging
+audit:
+  enabled: true
+  log_scan_activity: true
+  log_user_activity: true
+  retention_days: 365
+  directory: "/var/log/nessus/audit"
+
+# Advanced settings
+advanced:
+  debug_mode: false
+  proxy:
+    enabled: false
+    host: "proxy.example.com"
+    port: 8080
+    username: "${PROXY_USER}"
+    password: "${PROXY_PASSWORD}"
+  
+  # Resource limits
+  resource_limits:
+    max_cpu: 80                  # Percentage
+    max_memory: 4096             # MB
+    max_disk: 10240              # MB
+
+# Scanner health monitoring
+health:
+  check_interval: 300            # Seconds
+  metrics:
+    - "scan_queue"
+    - "plugin_age"
+    - "database_size"
+    - "system_load"
+  
+  alerts:
+    high_queue_length: 10
+    old_plugins_days: 7
+    high_cpu: 90
+    high_memory: 95

@@ -436,4 +436,4 @@ class AssetDiscovery:
     def _current_timestamp(self) -> str:
         """Get current timestamp in ISO format"""
         from datetime import datetime
-        return datetime.utcnow().isoformat() + 'Z'
+        return datetime.utcnow().isoformat() + 'Z'   

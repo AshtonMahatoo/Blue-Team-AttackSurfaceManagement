@@ -1,0 +1,500 @@
+# SP101 ASM - Graylog Integration Configuration
+# Version: 1.2.0
+
+# Graylog Server Connection
+server:
+  host: "${GRAYLOG_HOST:-localhost}"
+  port: 9000
+  scheme: "http"  # http or https
+  timeout: 30
+  verify_ssl: true
+  
+  # Authentication
+  username: "${GRAYLOG_USERNAME:-admin}"
+  password: "${GRAYLOG_PASSWORD}"
+  
+  # API Configuration
+  api_version: "v1"
+  max_retries: 3
+  retry_delay: 5
+
+# Input Configuration
+inputs:
+  # Syslog Input (RFC 5424/3164)
+  syslog:
+    enabled: true
+    title: "ASM Syslog Input"
+    type: "org.graylog2.inputs.syslog.tcp.SyslogTCPInput"
+    port: 1514
+    bind_address: "0.0.0.0"
+    
+    # Syslog parsing
+    override_source: "<empty>"
+    force_rdns: false
+    store_full_message: true
+    expand_structured_data: true
+    
+    # TCP settings
+    tcp_keepalive: false
+    use_null_delimiter: false
+    max_message_size: 2097152  # 2MB
+    
+  # GELF Input (Graylog Extended Log Format)
+  gelf:
+    enabled: true
+    title: "ASM GELF Input"
+    type: "org.graylog2.inputs.gelf.tcp.GELFTCPInput"
+    port: 5555
+    bind_address: "0.0.0.0"
+    
+    # GELF settings
+    decompress_size_limit: 8388608  # 8MB
+    recv_buffer_size: 1048576  # 1MB
+    
+  # Raw/Plaintext Input
+  plaintext:
+    enabled: false
+    title: "ASM Raw Input"
+    type: "org.graylog2.inputs.raw.tcp.RawTCPInput"
+    port: 5556
+    bind_address: "0.0.0.0"
+
+# Stream Configuration
+streams:
+  # Asset Discovery Stream
+  asset_discovery:
+    title: "ASM - Asset Discovery"
+    description: "All discovered assets from SP101 ASM platform"
+    index_set: "asm_assets"
+    matching_type: "AND"
+    
+    rules:
+      - field: "source"
+        value: "asm_asset_discovery"
+        inverted: false
+        
+      - field: "application"
+        value: "sp101-asm"
+        inverted: false
+    
+    # Alert conditions
+    alert_conditions:
+      - type: "field_value"
+        parameters:
+          field: "risk_score"
+          threshold: 7.0
+          threshold_type: "greater"
+          time: 5
+        
+    # Outputs
+    outputs:
+      - type: "notification"
+        configuration:
+          callback_type: "org.graylog2.rest.models.accounts.requests.EmailNotificationCallback"
+          
+  # Vulnerability Stream
+  vulnerability_alerts:
+    title: "ASM - Vulnerability Alerts"
+    description: "Vulnerability scan results and alerts"
+    index_set: "asm_vulnerabilities"
+    
+    rules:
+      - field: "source"
+        value: "asm_vulnerability_scanner"
+        inverted: false
+        
+      - field: "severity"
+        value: ["critical", "high"]
+        inverted: false
+    
+    # Alert on new critical vulnerabilities
+    alert_conditions:
+      - type: "message_count"
+        parameters:
+          threshold: 1
+          time: 1
+          query: "severity:critical"
+          
+  # Platform Events Stream
+  platform_events:
+    title: "ASM - Platform Events"
+    description: "Platform operational events and metrics"
+    index_set: "asm_events"
+    
+    rules:
+      - field: "application"
+        value: "sp101-asm"
+        inverted: false
+        
+      - field: "event_type"
+        value: ["startup", "shutdown", "error", "health_check"]
+        inverted: false
+
+# Dashboard Configuration
+dashboards:
+  # ASM Overview Dashboard
+  asm_overview:
+    title: "SP101 ASM - Overview"
+    description: "Attack Surface Management Overview Dashboard"
+    
+    widgets:
+      - type: "search_result_chart"
+        config:
+          timerange:
+            type: "relative"
+            range: 3600
+          query: "application:sp101-asm"
+          interval: "minute"
+          
+      - type: "field_chart"
+        config:
+          field: "severity"
+          query: "source:asm_vulnerability_scanner"
+          timerange:
+            type: "relative"
+            range: 86400
+            
+      - type: "quick_values"
+        config:
+          field: "asset_type"
+          query: "source:asm_asset_discovery"
+          
+      - type: "statistics"
+        config:
+          query: "severity:critical"
+          stream: "asm_vulnerability_alerts"
+          
+  # Vulnerability Dashboard
+  vulnerability_dashboard:
+    title: "SP101 ASM - Vulnerabilities"
+    description: "Vulnerability Management Dashboard"
+    
+    widgets:
+      - type: "search_result_chart"
+        config:
+          query: "severity:critical OR severity:high"
+          interval: "hour"
+          
+      - type: "quick_values"
+        config:
+          field: "cve_id"
+          query: "severity:critical"
+          
+      - type: "world_map"
+        config:
+          field: "geo_location"
+          query: "source:asm_asset_discovery"
+
+# Index Set Configuration
+index_sets:
+  asm_assets:
+    title: "ASM Assets"
+    description: "Asset discovery logs"
+    index_prefix: "asm_assets"
+    shards: 4
+    replicas: 1
+    rotation_strategy_class: "org.graylog2.indexer.rotation.strategies.TimeBasedRotationStrategy"
+    rotation_strategy:
+      type: "time"
+      rotation_period: "P1D"  # Daily rotation
+      
+  asm_vulnerabilities:
+    title: "ASM Vulnerabilities"
+    description: "Vulnerability scan results"
+    index_prefix: "asm_vulnerabilities"
+    shards: 4
+    replicas: 1
+    rotation_strategy_class: "org.graylog2.indexer.rotation.strategies.SizeBasedRotationStrategy"
+    rotation_strategy:
+      type: "size"
+      max_size: 10737418240  # 10GB
+      
+  asm_events:
+    title: "ASM Events"
+    description: "Platform operational events"
+    index_prefix: "asm_events"
+    shards: 2
+    replicas: 1
+    rotation_strategy_class: "org.graylog2.indexer.rotation.strategies.TimeBasedRotationStrategy"
+    rotation_strategy:
+      type: "time"
+      rotation_period: "P7D"  # Weekly rotation
+
+# Content Packs (Pre-configured setups)
+content_packs:
+  # SP101 ASM Content Pack
+  sp101_asm:
+    enabled: true
+    url: "https://packages.sp101-asm.com/graylog/content-pack.json"
+    version: "1.0.0"
+    
+    includes:
+      - inputs: ["syslog", "gelf"]
+      - streams: ["asset_discovery", "vulnerability_alerts"]
+      - dashboards: ["asm_overview", "vulnerability_dashboard"]
+      - grok_patterns: ["ASM_LOG_PATTERN"]
+
+# Grok Patterns for Log Parsing
+grok_patterns:
+  asm_asset_pattern: |
+    ^%{TIMESTAMP_ISO8601:timestamp} %{LOGLEVEL:level} \[%{DATA:module}\] Asset: %{IP:asset_ip} %{DATA:asset_hostname} %{WORD:status} Risk: %{NUMBER:risk_score:float}
+    
+  asm_vulnerability_pattern: |
+    ^%{TIMESTAMP_ISO8601:timestamp} %{LOGLEVEL:level} Vulnerability: %{DATA:cve_id} Severity: %{WORD:severity} CVSS: %{NUMBER:cvss_score:float} Asset: %{IP:asset_ip}
+    
+  nmap_scan_pattern: |
+    ^%{TIMESTAMP_ISO8601:timestamp} Nmap scan: %{IP:target_ip} Ports: %{DATA:open_ports} Services: %{GREEDYDATA:services}
+
+# Extractors (Field parsing rules)
+extractors:
+  - stream: "asm_vulnerability_alerts"
+    field: "message"
+    extractor_type: "grok"
+    configuration:
+      grok_pattern: "%{ASM_VULNERABILITY_PATTERN}"
+      
+  - stream: "asm_asset_discovery"
+    field: "message"
+    extractor_type: "json"
+    configuration:
+      list_separator: ","
+      kv_separator: "="
+      key_prefix: ""
+      key_separator: "_"
+      flatten: true
+
+# Lookup Tables (for enrichment)
+lookup_tables:
+  asset_metadata:
+    name: "asset_metadata"
+    cache:
+      type: "guava"
+      max_size: 10000
+      expire_after_access_minutes: 60
+      
+    data_adapter:
+      type: "httpjson"
+      url: "http://asset-db.internal/api/assets"
+      headers:
+        Authorization: "Bearer ${ASSET_API_TOKEN}"
+      single_value_jsonpath: "$.data"
+      multi_value_jsonpath: "$.data[*]"
+      
+  cve_database:
+    name: "cve_database"
+    cache:
+      type: "guava"
+      max_size: 50000
+      expire_after_write_hours: 24
+      
+    data_adapter:
+      type: "csv"
+      path: "/etc/graylog/cve_database.csv"
+      separator: ","
+      quotechar: "\""
+      key_column: "cve_id"
+      check_interval: 3600
+
+# Pipeline Rules (Message processing)
+pipelines:
+  # Stage 1: Parse and normalize
+  stage_parse:
+    rules:
+      - rule: |
+          rule "Parse ASM Asset Logs"
+          when
+            has_field("application") && $message.application == "sp101-asm"
+          then
+            let parsed = parse_grok(
+              pattern: "%{ASM_ASSET_PATTERN}",
+              value: to_string($message.message)
+            );
+            set_fields(parsed);
+          end
+          
+      - rule: |
+          rule "Enrich with Asset Metadata"
+          when
+            has_field("asset_ip")
+          then
+            let metadata = lookup("asset_metadata", $message.asset_ip);
+            set_field("asset_owner", metadata.owner);
+            set_field("asset_department", metadata.department);
+            set_field("asset_criticality", metadata.criticality);
+          end
+  
+  # Stage 2: CVE enrichment
+  stage_cve_enrichment:
+    rules:
+      - rule: |
+          rule "Enrich CVE Information"
+          when
+            has_field("cve_id")
+          then
+            let cve_info = lookup("cve_database", $message.cve_id);
+            set_field("cve_description", cve_info.description);
+            set_field("cve_published", cve_info.published);
+            set_field("cve_remediation", cve_info.remediation);
+          end
+  
+  # Stage 3: Alert triggering
+  stage_alerts:
+    rules:
+      - rule: |
+          rule "Trigger Critical Vulnerability Alert"
+          when
+            has_field("severity") && $message.severity == "critical" &&
+            has_field("cvss_score") && to_double($message.cvss_score) >= 9.0
+          then
+            create_alert(
+              condition: "Critical vulnerability detected",
+              description: concat("CVE: ", $message.cve_id, " on asset: ", $message.asset_ip)
+            );
+          end
+
+# Notification Configuration
+notifications:
+  # Email Notifications
+  email:
+    enabled: true
+    sender: "asm-alerts@example.com"
+    subject: "[SP101-ASM] ${condition}"
+    
+    # Email templates
+    body: |
+      <html>
+      <body>
+        <h2>Alert: ${condition}</h2>
+        <p><strong>Description:</strong> ${description}</p>
+        <p><strong>Timestamp:</strong> ${timestamp}</p>
+        <p><strong>Stream:</strong> ${stream.title}</p>
+        <p><strong>View in Graylog:</strong> <a href="${source_url}">${source_url}</a></p>
+      </body>
+      </html>
+    
+  # Slack Notifications
+  slack:
+    enabled: false
+    webhook_url: "${SLACK_WEBHOOK_URL}"
+    channel: "#security-alerts"
+    color: "#FF0000"
+    icon_emoji: ":warning:"
+
+# Log Forwarding (to external systems)
+forwarding:
+  # Forward to SIEM
+  splunk:
+    enabled: false
+    type: "http"
+    url: "${SPLUNK_HEC_URL}"
+    token: "${SPLUNK_HEC_TOKEN}"
+    index: "asm_logs"
+    sourcetype: "sp101:asm"
+    
+  # Forward to Elasticsearch
+  elasticsearch:
+    enabled: false
+    hosts:
+      - "http://elasticsearch-secondary:9200"
+    index: "asm_logs_{YYYY.MM.dd}"
+    pipeline: "asm_logs_pipeline"
+
+# Performance Tuning
+performance:
+  # Input performance
+  input:
+    recv_buffer_size: 1048576  # 1MB
+    worker_threads: 4
+    max_message_queue_size: 10000
+    
+  # Processing performance
+  processing:
+    processor_watchdog:
+      enabled: true
+      warn_threshold_ms: 1000
+      kill_threshold_ms: 5000
+      
+    # Rule execution
+    max_rule_executions: 1000
+    rule_batch_size: 100
+    
+  # Search performance
+  search:
+    query_time_range_limit: "P30D"  # 30 days
+    relative_timerange_options: ["1h", "24h", "7d", "30d"]
+    auto_refresh_timerange_options: ["1s", "5s", "10s", "30s", "1m"]
+
+# Security Configuration
+security:
+  # SSL/TLS
+  ssl:
+    enabled: false
+    cert_file: "/etc/ssl/graylog/server.crt"
+    key_file: "/etc/ssl/graylog/server.key"
+    ca_file: "/etc/ssl/graylog/ca.crt"
+    
+  # Authentication
+  authentication:
+    default_backend: "mongodb"
+    
+    # LDAP Integration
+    ldap:
+      enabled: false
+      servers:
+        - host: "ldap.example.com"
+          port: 389
+      system_username: "cn=graylog,ou=services,dc=example,dc=com"
+      system_password: "${LDAP_PASSWORD}"
+      search_base: "ou=users,dc=example,dc=com"
+      search_pattern: "(uid={0})"
+      
+    # SAML/SSO
+    saml:
+      enabled: false
+      idp_metadata_url: "https://sso.example.com/metadata"
+      sp_entity_id: "urn:graylog:sp101-asm"
+      
+  # Authorization/Roles
+  roles:
+    asm_viewer:
+      permissions:
+        - "streams:read"
+        - "dashboards:read"
+        - "searches:relative"
+        
+    asm_analyst:
+      permissions:
+        - "streams:read"
+        - "dashboards:read"
+        - "searches:relative"
+        - "savedsearches:create"
+        - "alerts:read"
+        
+    asm_admin:
+      permissions:
+        - "*"
+
+# Backup Configuration
+backup:
+  enabled: true
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  
+  content:
+    include:
+      - "streams"
+      - "dashboards"
+      - "inputs"
+      - "extractors"
+      - "lookup_tables"
+      - "pipelines"
+      
+  storage:
+    type: "local"  # local, s3, scp
+    local:
+      directory: "/var/backups/graylog"
+      retention_days: 30
+      
+    s3:
+      bucket: "graylog-backups"
+      region: "us-east-1"
+      prefix: "sp101-asm/"
